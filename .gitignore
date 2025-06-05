@@ -4,3 +4,7 @@ __pycache__/
 instance/
 .env
 td_venv/
+.env
+td_venv/
+migrations/versions/*.pyc
+.DS_Store
