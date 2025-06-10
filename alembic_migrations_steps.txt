@@ -1,0 +1,4 @@
+Whenever you change your models in database.py:
+
+Run flask db migrate -m "Describe your change"
+Run flask db upgrade
