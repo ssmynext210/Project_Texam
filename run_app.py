@@ -1,5 +1,7 @@
 from flask import Flask
-from app.controllers import bp as auth_bp
+from app.routes.auth_routes import bp as auth_bp
+from app.routes.user_routes import bp as user_bp
+from app.routes.org_routes import bp as org_bp
 from app.database import init_db
 from dotenv import load_dotenv
 import os
@@ -24,6 +26,8 @@ def create_app():
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     init_db(app)
     app.register_blueprint(auth_bp)
+    app.register_blueprint(user_bp)
+    app.register_blueprint(org_bp)
 
     return app
 
