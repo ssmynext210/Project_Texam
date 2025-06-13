@@ -2,8 +2,15 @@ from flask import Blueprint, request, jsonify, redirect
 from redis import Redis
 from requests_oauthlib import OAuth2Session
 import logging
+from datetime import datetime, timedelta
+import uuid
 from app.database import db, Tenant, User, APIToken, assign_user_role
-from app.tokens import generate_access_token, generate_refresh_token, generate_api_token
+from app.tokens import (
+    generate_access_token, 
+    generate_refresh_token, 
+    generate_api_token,
+    auth_middleware
+)
 
 bp = Blueprint('auth', __name__, url_prefix='/auth')
 
@@ -121,3 +128,87 @@ def logout():
     key = f"refresh:{refresh_token}"
     redis_client.delete(key)
     return jsonify({"message": "Logged out successfully"})
+
+
+
+
+@bp.route('/tokens', methods=['POST'])
+@auth_middleware
+def create_token():
+    """Create a new API token for the authenticated user"""
+    try:
+        days = request.json.get('days', 30)
+        if not isinstance(days, int) or days < 1 or days > 365:
+            return jsonify({
+                "success": False,
+                "error": "Days must be between 1 and 365"
+            }), 400
+
+        token = generate_api_token(
+            user_id=request.user_id,
+            duration=timedelta(days=days)
+        )
+        
+        return jsonify({
+            "success": True,
+            "token": token,
+            "expires_in": days * 24 * 3600
+        }), 201
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@bp.route('/tokens/list', methods=['GET'])
+@auth_middleware
+def list_tokens():
+    """List all active API tokens for the authenticated user"""
+    try:
+        tokens = APIToken.query.filter_by(
+            user_id=request.user_id,
+            revoked=False
+        ).all()
+
+        return jsonify({
+            "success": True,
+            "tokens": [{
+                "id": str(token.id),
+                "expires_at": token.expires_at.isoformat() if token.expires_at else None,
+                "created_at": token.created_at.isoformat()
+            } for token in tokens if token.expires_at > datetime.utcnow()]
+        }), 200
+
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@bp.route('/tokens/<token_id>/revoke', methods=['POST'])
+@auth_middleware
+def revoke_token(token_id):
+    """Revoke a specific API token"""
+    try:
+        token = APIToken.query.filter_by(
+            id=uuid.UUID(token_id),
+            user_id=request.user_id
+        ).first()
+
+        if not token:
+            return jsonify({
+                "success": False,
+                "error": "Token not found"
+            }), 404
+
+        token.revoked = True
+        db.session.commit()
+
+        return jsonify({
+            "success": True,
+            "message": "Token revoked successfully"
+        }), 200
+
+    except ValueError:
+        return jsonify({
+            "success": False,
+            "error": "Invalid token ID"
+        }), 400
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"success": False, "error": str(e)}), 500
